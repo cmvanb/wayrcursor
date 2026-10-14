@@ -3,7 +3,7 @@ BINDIR ?= $(PREFIX)/bin
 UNITDIR ?= $(or $(XDG_DATA_HOME),$(HOME)/.local/share)/systemd/user
 E2E_MODES := locate daemon shake drift reload
 
-.PHONY: build install uninstall test e2e perf
+.PHONY: build install uninstall test e2e perf demo
 
 build:
 	cargo build --release --locked
@@ -27,3 +27,6 @@ e2e:
 
 perf:
 	scripts/perf.sh
+
+demo:
+	scripts/demo.sh docs

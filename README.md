@@ -84,7 +84,10 @@ make perf   # daemon CPU cost
 
 `make e2e` starts a private headless Sway for each scenario,
 drives a virtual cursor, and records the screen with `grim`.
+make demo   # re-record docs/demo.mp4 and docs/demo.gif
 Frames, a video and a contact sheet go to `target/e2e/<scenario>`.
 It needs `sway`, `grim`, `ffmpeg`, `jq` and `uv`.
 The shake scenarios create a uinput device without buttons,
 which your running compositor ignores.
+`make demo` also needs `alacritty` and `bat`.
+Set `WALLPAPER` to an image path to replace the default gradient.
