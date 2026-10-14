@@ -1,7 +1,12 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy", "pillow"]
+# ///
 """Asserts ring geometry in frames recorded by e2e.sh.
 
 Usage: check_frames.py OUT_DIR CURSOR_X CURSOR_Y SCALE [locate args...]
 Env: SETTLED_AT, seconds after launch when the cursor reached CURSOR_X/Y.
+     EXPECT_NONE=1 asserts the ring never appears.
 """
 
 import math
@@ -53,6 +58,9 @@ def main():
         print(f"{name} t={t:5.3f}s pixels={dist.size:7d} dist={dist.min():7.1f}..{dist.max():7.1f} arcs={bins:2d}{' landed' if is_landed else ''}")
 
     visible = [r for r in rows if r[2].size]
+    if os.environ.get("EXPECT_NONE"):
+        print(f"FAIL: ring appeared in {len(visible)} frames" if visible else "PASS")
+        sys.exit(1 if visible else 0)
     if not visible:
         failures.append("ring never appeared")
     if not any(landed):
