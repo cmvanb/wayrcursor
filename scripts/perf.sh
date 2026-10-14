@@ -6,6 +6,7 @@ cargo build -q --release --manifest-path "$root/Cargo.toml" --bin wayrcursor --e
 bin="$root/target/release"
 export WAYRCURSOR_HEADLESS_DIR=$(mktemp -d "$XDG_RUNTIME_DIR/wayrcursor-perf.XXXXXX")
 . <("$root/scripts/headless.sh")
+export WAYRCURSOR_DEVICES=wayrcursor-vshake
 pids=()
 cleanup() {
   kill "${pids[@]}" "$(cat "$WAYRCURSOR_HEADLESS_DIR/pid")" 2>/dev/null || true

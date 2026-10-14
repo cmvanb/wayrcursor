@@ -144,6 +144,9 @@ impl Watcher {
         let Some(kind) = classify(&device) else {
             return;
         };
+        if !allowed(device.name().unwrap_or_default()) {
+            return;
+        }
         lock(&self.open).insert(path.clone());
         let watcher = self.clone();
         let thread_path = path.clone();
@@ -172,6 +175,12 @@ impl Watcher {
         }
         lock(&self.open).remove(path);
     }
+}
+
+/// Tests set `WAYRCURSOR_DEVICES` to a comma-separated list of device names
+/// so the machine's real mice cannot trigger shakes during a recorded run.
+fn allowed(name: &str) -> bool {
+    std::env::var("WAYRCURSOR_DEVICES").map_or(true, |list| list.split(',').any(|n| n == name))
 }
 
 /// No lock holder can panic mid-update, so a poisoned lock still holds valid data.

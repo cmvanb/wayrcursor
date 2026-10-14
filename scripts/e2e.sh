@@ -16,6 +16,7 @@ bin="$root/target/debug"
 config="$WAYRCURSOR_HEADLESS_DIR/config.toml"
 
 . <("$root/scripts/headless.sh")
+export WAYRCURSOR_DEVICES=wayrcursor-vshake
 pids=()
 cleanup() {
   kill "${pids[@]}" "$(cat "$WAYRCURSOR_HEADLESS_DIR/pid")" 2>/dev/null || true
