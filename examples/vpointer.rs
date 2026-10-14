@@ -28,7 +28,10 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Globals {
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
-        if let wl_registry::Event::Global { name, interface, .. } = event {
+        if let wl_registry::Event::Global {
+            name, interface, ..
+        } = event
+        {
             match interface.as_str() {
                 "wl_seat" => state.seat = Some(registry.bind(name, 1, qh, ())),
                 "zwlr_virtual_pointer_manager_v1" => {
@@ -57,7 +60,10 @@ fn main() -> anyhow::Result<()> {
     conn.display().get_registry(&qh, ());
     let mut globals = Globals::default();
     queue.roundtrip(&mut globals)?;
-    let manager = globals.manager.as_ref().ok_or_else(|| anyhow::anyhow!("no virtual pointer manager"))?;
+    let manager = globals
+        .manager
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no virtual pointer manager"))?;
     let pointer = manager.create_virtual_pointer(globals.seat.as_ref(), &qh, ());
     queue.roundtrip(&mut globals)?;
 
