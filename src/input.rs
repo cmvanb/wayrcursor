@@ -331,4 +331,43 @@ mod tests {
         );
         assert_eq!(out, vec![]);
     }
+
+    /// Replays a recorded trace (`seconds type code value` per line) and returns when each shake fired.
+    fn shake_times(trace: &str, kind: DeviceKind) -> Vec<f32> {
+        let start = Instant::now();
+        let mut translator = Translator::new(kind);
+        let mut detector = ShakeDetector::new(crate::config::Config::default().shake);
+        let mut fired = Vec::new();
+        for line in trace.lines() {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            let seconds: f32 = f[0].parse().unwrap();
+            let event = InputEvent::new(
+                f[1].parse().unwrap(),
+                f[2].parse().unwrap(),
+                f[3].parse().unwrap(),
+            );
+            let at = start + std::time::Duration::from_secs_f32(seconds);
+            if translator
+                .translate(event, at)
+                .is_some_and(|m| detector.feed(m))
+            {
+                fired.push(seconds);
+            }
+        }
+        fired
+    }
+
+    #[test]
+    fn recorded_wrist_shakes_each_fire_within_a_second() {
+        let fired = shake_times(
+            include_str!("testdata/mx-vertical-shakes.trace"),
+            DeviceKind::Relative,
+        );
+        for burst in [0.0, 10.4, 15.4] {
+            assert!(
+                fired.iter().any(|&t| t >= burst && t < burst + 1.0),
+                "burst at {burst}s never fired; fired at {fired:?}"
+            );
+        }
+    }
 }

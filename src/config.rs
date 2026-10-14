@@ -103,7 +103,7 @@ impl Default for ShakeParams {
         Self {
             reversals: 4,
             window_ms: 600,
-            min_travel_mm: 8.0,
+            min_travel_mm: 3.0,
         }
     }
 }
