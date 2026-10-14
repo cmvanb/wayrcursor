@@ -1,22 +1,16 @@
 mod anim;
 mod config;
+mod daemon;
 mod gpu;
 mod input;
 mod overlay;
 mod ring;
 mod shake;
 
-use std::time::Instant;
-
-use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
-use smithay_client_toolkit::reexports::{
-    calloop::EventLoop, calloop_wayland_source::WaylandSource,
-};
-use wayland_client::{Connection, globals::registry_queue_init};
 
 use crate::config::Config;
-use crate::overlay::Overlay;
+use crate::overlay::Session;
 
 /// Shows where the cursor is with a ring that closes in on it.
 #[derive(Parser)]
@@ -28,8 +22,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show the ring once.
+    /// Show the ring once. A running daemon draws it; otherwise this process does.
     Locate(Style),
+    /// Stay running: show the ring when the pointer is shaken or `locate` asks.
+    Daemon(Style),
 }
 
 /// Per-invocation overrides of the config file.
@@ -77,30 +73,20 @@ impl Style {
 }
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    match cli.command {
-        Command::Locate(style) => locate(Config::load(&style.config, &style.overrides())?),
+    match Cli::parse().command {
+        Command::Locate(style) => {
+            let overrides = style.overrides();
+            let config = Config::load(&style.config, &overrides)?;
+            if daemon::request_locate(&overrides)? {
+                return Ok(());
+            }
+            let mut session = Session::connect()?;
+            session.overlay.trigger(&session.qh, &config);
+            while !session.overlay.is_idle() {
+                session.step()?;
+            }
+            Ok(())
+        }
+        Command::Daemon(style) => daemon::run(style.config.clone(), style.overrides()),
     }
-}
-
-fn locate(config: Config) -> anyhow::Result<()> {
-    let conn = Connection::connect_to_env().context("connecting to the Wayland compositor")?;
-    let (globals, queue) = registry_queue_init(&conn)?;
-    let qh = queue.handle();
-    let mut event_loop: EventLoop<Overlay> = EventLoop::try_new()?;
-    WaylandSource::new(conn.clone(), queue)
-        .insert(event_loop.handle())
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let mut overlay = Overlay::new(&conn, &globals, &qh)?;
-    event_loop.dispatch(std::time::Duration::ZERO, &mut overlay)?;
-    overlay.trigger(&qh, &config);
-    while !overlay.is_idle() {
-        let timeout = overlay
-            .wake_at()
-            .map(|t| t.saturating_duration_since(Instant::now()));
-        event_loop.dispatch(timeout, &mut overlay)?;
-        overlay.tick();
-    }
-    conn.flush()?;
-    Ok(())
 }

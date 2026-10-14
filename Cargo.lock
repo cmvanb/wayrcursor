@@ -978,7 +978,6 @@ name = "wayrcursor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "calloop",
  "clap",
  "evdev",
  "glow",

@@ -143,7 +143,7 @@ impl Config {
     }
 }
 
-fn merge(base: &mut toml::Table, overlay: &toml::Table) {
+pub fn merge(base: &mut toml::Table, overlay: &toml::Table) {
     for (key, value) in overlay {
         match (base.get_mut(key), value) {
             (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge(b, o),

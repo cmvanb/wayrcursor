@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-calloop = "0.14.5"
 clap = { version = "4.6.7", features = ["derive"] }
 evdev = "0.13.2"
 glow = "0.18.0"

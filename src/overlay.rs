@@ -1,5 +1,9 @@
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
+use smithay_client_toolkit::reexports::{
+    calloop::EventLoop, calloop_wayland_source::WaylandSource,
+};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData},
     dispatch2::Dispatch2,
@@ -22,7 +26,7 @@ use smithay_client_toolkit::{
 };
 use wayland_client::{
     Connection, Proxy, QueueHandle,
-    globals::GlobalList,
+    globals::{GlobalList, registry_queue_init},
     protocol::{
         wl_output::WlOutput, wl_pointer::WlPointer, wl_seat::WlSeat, wl_surface::WlSurface,
     },
@@ -587,5 +591,43 @@ impl Dispatch2<WpFractionalScaleV1, Overlay> for ScaleOf {
             state.surfaces[index].painted = false;
             state.render(qh, index);
         }
+    }
+}
+
+/// A Wayland connection driving one `Overlay` from a calloop event loop.
+pub struct Session {
+    /// Declared first so EGL tears down while the Wayland connection is still alive.
+    pub overlay: Overlay,
+    pub event_loop: EventLoop<'static, Overlay>,
+    pub qh: QueueHandle<Overlay>,
+}
+
+impl Session {
+    pub fn connect() -> anyhow::Result<Self> {
+        let conn = Connection::connect_to_env().context("connecting to the Wayland compositor")?;
+        let (globals, queue) = registry_queue_init(&conn)?;
+        let qh = queue.handle();
+        let mut event_loop = EventLoop::try_new()?;
+        WaylandSource::new(conn.clone(), queue)
+            .insert(event_loop.handle())
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut overlay = Overlay::new(&conn, &globals, &qh)?;
+        event_loop.dispatch(Duration::ZERO, &mut overlay)?;
+        Ok(Self {
+            overlay,
+            event_loop,
+            qh,
+        })
+    }
+
+    /// Blocks until something happens, then advances the ring.
+    pub fn step(&mut self) -> anyhow::Result<()> {
+        let timeout = self
+            .overlay
+            .wake_at()
+            .map(|t| t.saturating_duration_since(Instant::now()));
+        self.event_loop.dispatch(timeout, &mut self.overlay)?;
+        self.overlay.tick();
+        Ok(())
     }
 }
