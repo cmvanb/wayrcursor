@@ -1,9 +1,11 @@
 """Asserts ring geometry in frames recorded by e2e.sh.
 
 Usage: check_frames.py OUT_DIR CURSOR_X CURSOR_Y SCALE [locate args...]
+Env: SETTLED_AT, seconds after launch when the cursor reached CURSOR_X/Y.
 """
 
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -56,7 +58,8 @@ def main():
     if not any(landed):
         failures.append(f"ring never landed as a full circle at radius {radius:.1f}px ±{reach:.1f}")
     first_landed = landed.index(True) if True in landed else len(landed)
-    inbound = [r[2].max() for r in visible[:first_landed]]
+    settled = float(os.environ.get("SETTLED_AT", 0))
+    inbound = [r[2].max() for r in visible[:first_landed] if r[1] >= settled]
     if not any(d > 3 * radius for d in inbound):
         failures.append("no inbound frame captured far from the cursor")
     if any(b > a + 2 for a, b in zip(inbound, inbound[1:])):

@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 # Records `wayrcursor locate` in a fresh headless Sway and checks the frames.
 # Usage: scripts/e2e.sh OUT_DIR [locate args...]
-# Env: HEADLESS_RES, HEADLESS_SCALE, CURSOR ("x y", logical).
+# Env: HEADLESS_RES, HEADLESS_SCALE, CURSOR ("x y", logical), MOVE_TO ("x y", sent 150ms in).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 out=$(realpath -m "$1"); shift
 mkdir -p "$out"; rm -f "$out"/*.ppm "$out"/frames.txt
-export WAYRCURSOR_HEADLESS_DIR="$out/sway"
+export WAYRCURSOR_HEADLESS_DIR=$(mktemp -d "$XDG_RUNTIME_DIR/wayrcursor-e2e.XXXXXX")
 cargo build -q --manifest-path "$root/Cargo.toml" --bin wayrcursor --example vpointer
 bin="$root/target/debug"
 
 . <("$root/scripts/headless.sh")
-cleanup() { kill "$vp_pid" "$(cat "$out/sway/pid")" 2>/dev/null || true; }
+vp_pid=
+cleanup() {
+  kill $vp_pid "$(cat "$WAYRCURSOR_HEADLESS_DIR/pid")" 2>/dev/null || true
+  rm -rf "$WAYRCURSOR_HEADLESS_DIR"
+}
 trap cleanup EXIT
 res=${HEADLESS_RES:-1920x1080}; scale=${HEADLESS_SCALE:-1}
 read -r lw lh < <(swaymsg -t get_outputs | jq -r '.[0].rect | "\(.width) \(.height)"')
-mkfifo "$out/vp.fifo" 2>/dev/null || true
+rm -f "$out/vp.fifo"; mkfifo "$out/vp.fifo"
 "$bin/examples/vpointer" "$lw" "$lh" < <(tail -f "$out/vp.fifo") & vp_pid=$!
 sleep 0.3
 read -r cx cy <<<"${CURSOR:-500 300}"
@@ -24,6 +28,11 @@ sleep 0.2
 
 "$bin/wayrcursor" locate --config /dev/null "$@" & app=$!
 start=$EPOCHREALTIME
+if [ -n "${MOVE_TO:-}" ]; then
+  (sleep 0.15; echo "abs $MOVE_TO" > "$out/vp.fifo") &
+  read -r cx cy <<<"$MOVE_TO"
+  export SETTLED_AT=0.25
+fi
 i=0
 while kill -0 "$app" 2>/dev/null; do
   f=$(printf '%s/%04d.ppm' "$out" "$i")
