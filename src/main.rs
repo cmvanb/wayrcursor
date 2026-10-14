@@ -1,6 +1,7 @@
 mod anim;
 mod config;
 mod gpu;
+mod input;
 mod overlay;
 mod ring;
 mod shake;
