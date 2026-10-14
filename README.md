@@ -5,6 +5,8 @@ A ring starts beyond the edges of the cursor's output,
 closes in on the cursor, holds for a moment, and fades out.
 Run it on demand, or keep the daemon running and shake the pointer.
 
+![wayrcursor demo](docs/demo.gif)
+
 ## Requirements
 
 - A compositor with `wlr-layer-shell` and `wp-viewporter`,
@@ -84,10 +86,5 @@ make perf   # daemon CPU cost
 
 `make e2e` starts a private headless Sway for each scenario,
 drives a virtual cursor, and records the screen with `grim`.
-make demo   # re-record docs/demo.mp4 and docs/demo.gif
 Frames, a video and a contact sheet go to `target/e2e/<scenario>`.
 It needs `sway`, `grim`, `ffmpeg`, `jq` and `uv`.
-The shake scenarios create a uinput device without buttons,
-which your running compositor ignores.
-`make demo` also needs `alacritty` and `bat`.
-Set `WALLPAPER` to an image path to replace the default gradient.
