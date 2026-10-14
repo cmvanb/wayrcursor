@@ -1,0 +1,23 @@
+# wayrcursor configuration. Copy to $XDG_CONFIG_HOME/wayrcursor/config.toml.
+# Every key is optional; these are the defaults. The daemon reloads on save.
+
+[ring]
+# Logical pixels.
+width = 6.0
+radius = 40.0
+outline_width = 1.0
+# #rrggbb or #rrggbbaa.
+color = "#ffc208"
+outline = "#000000b3"
+
+[timing]
+inbound_ms = 350
+hold_ms = 150
+fade_ms = 250
+
+[shake]
+# Direction reversals on one axis within the window.
+reversals = 4
+window_ms = 600
+# Device travel a stroke needs before its reversal counts.
+min_travel_mm = 8.0

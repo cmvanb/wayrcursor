@@ -16,6 +16,18 @@ pub struct Rgba {
     pub a: f32,
 }
 
+impl Rgba {
+    fn from_hex(rgba: u32) -> Self {
+        let channel = |shift: u32| ((rgba >> shift) & 0xff) as f32 / 255.0;
+        Self {
+            r: channel(24),
+            g: channel(16),
+            b: channel(8),
+            a: channel(0),
+        }
+    }
+}
+
 impl TryFrom<String> for Rgba {
     type Error = String;
 
@@ -79,18 +91,8 @@ impl Default for RingStyle {
         Self {
             width: 6.0,
             radius: 40.0,
-            color: Rgba {
-                r: 1.0,
-                g: 0.76,
-                b: 0.03,
-                a: 1.0,
-            },
-            outline: Rgba {
-                r: 0.0,
-                g: 0.0,
-                b: 0.0,
-                a: 0.7,
-            },
+            color: Rgba::from_hex(0xffc208ff),
+            outline: Rgba::from_hex(0x000000b3),
             outline_width: 1.0,
         }
     }
@@ -230,6 +232,15 @@ mod tests {
         );
         assert!(Rgba::try_from("#12345".to_string()).is_err());
         assert!(Rgba::try_from("#gg0000".to_string()).is_err());
+    }
+
+    #[test]
+    fn shipped_example_matches_the_defaults() {
+        let example = include_str!("../dist/config.toml");
+        assert_eq!(
+            Config::parse(example, &toml::Table::new()).unwrap(),
+            Config::default()
+        );
     }
 
     #[test]
