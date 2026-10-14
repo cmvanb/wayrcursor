@@ -19,7 +19,7 @@ config="$WAYRCURSOR_HEADLESS_DIR/config.toml"
 pids=()
 cleanup() {
   kill "${pids[@]}" "$(cat "$WAYRCURSOR_HEADLESS_DIR/pid")" 2>/dev/null || true
-  rm -rf "$WAYRCURSOR_HEADLESS_DIR"
+  rm -rf "$WAYRCURSOR_HEADLESS_DIR" "$XDG_RUNTIME_DIR/wayrcursor-$WAYLAND_DISPLAY.sock"
 }
 trap cleanup EXIT
 scale=${HEADLESS_SCALE:-1}
