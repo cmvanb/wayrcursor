@@ -3,6 +3,7 @@
 # Usage: scripts/e2e.sh OUT_DIR [style args...]
 # Env:
 #   MODE     locate (standalone, default) | daemon (locate via daemon) | shake | drift (slow strokes, expects no ring)
+#            | reload (rewrites the config under a running daemon, expects the new color)
 #   HEADLESS_RES, HEADLESS_SCALE, CURSOR ("x y", logical), MOVE_TO ("x y", sent 150ms in)
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -45,6 +46,11 @@ case $mode in
     # A standalone fallback would block for the whole animation.
     awk -v a="$t0" -v b="$EPOCHREALTIME" 'BEGIN { if (b - a > 0.2) { print "FAIL: locate did not hand off to the daemon"; exit 1 } }' ;;
   shake) echo "shake 8" > "$out/shake.fifo" ;;
+  reload)
+    printf '[ring]\ncolor = "#00ff00"\n' > "$config.tmp" && mv "$config.tmp" "$config"
+    sleep 0.2
+    "$bin/wayrcursor" locate --config /dev/null
+    export EXPECT_COLOR=00ff00 ;;
   drift) echo "drift 8" > "$out/shake.fifo"; export EXPECT_NONE=1 ;;
 esac
 start=$EPOCHREALTIME

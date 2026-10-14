@@ -7,6 +7,7 @@
 Usage: check_frames.py OUT_DIR CURSOR_X CURSOR_Y SCALE [locate args...]
 Env: SETTLED_AT, seconds after launch when the cursor reached CURSOR_X/Y.
      EXPECT_NONE=1 asserts the ring never appears.
+     EXPECT_COLOR=rrggbb asserts the landed ring's core color.
 """
 
 import math
@@ -25,8 +26,12 @@ def flag(args, name, default):
     return float(args[args.index(name) + 1]) if name in args else default
 
 
+def load(path):
+    return np.asarray(Image.open(path).convert("RGB")).astype(int)
+
+
 def ring_pixels(path, cx, cy, scale):
-    img = np.asarray(Image.open(path).convert("RGB")).astype(int)
+    img = load(path)
     mask = np.abs(img - BACKGROUND).max(axis=2) > 24
     cursor = int(CURSOR_LOGICAL * scale)
     mask[max(cy - 2, 0) : cy + cursor, max(cx - 2, 0) : cx + cursor] = False
@@ -72,13 +77,22 @@ def main():
         failures.append("no inbound frame captured far from the cursor")
     if any(b > a + 2 for a, b in zip(inbound, inbound[1:])):
         failures.append(f"ring grew while closing in: {[round(d) for d in inbound]}")
+    expected = os.environ.get("EXPECT_COLOR")
+    if expected and True in landed:
+        name = [r for r in rows if r[2].size][landed.index(True)][0]
+        img = load(out / name)
+        core = [img[round(py + radius * math.sin(a)), round(px + radius * math.cos(a))] for a in np.linspace(0, 2 * math.pi, 16, endpoint=False)]
+        color = np.median(core, axis=0).astype(int)
+        want = np.array([int(expected[i : i + 2], 16) for i in (0, 2, 4)])
+        if np.abs(color - want).max() > 8:
+            failures.append(f"ring core is #{''.join(f'{c:02x}' for c in color)}, expected #{expected}")
     after, _ = ring_pixels(out / "after.ppm", px, py, scale)
     if after.size:
         failures.append(f"{after.size} ring pixels remain after exit")
 
     for f in failures:
         print(f"FAIL: {f}")
-    print("PASS" if not failures else "")
+    print("FAILED" if failures else "PASS")
     sys.exit(1 if failures else 0)
 
 
