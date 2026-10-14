@@ -4,16 +4,18 @@ use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::Context;
 use inotify::{Inotify, WatchMask};
-use smithay_client_toolkit::reexports::calloop::{Interest, Mode, PostAction, generic::Generic};
+use smithay_client_toolkit::reexports::calloop::{
+    Interest, Mode, PostAction, channel, generic::Generic,
+};
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, ShakeParams};
 use crate::input;
 use crate::overlay::Session;
-use crate::shake::ShakeDetector;
 
 /// The daemon's socket, one per Wayland display so nested compositors get their own.
 pub fn socket_path() -> PathBuf {
@@ -42,6 +44,8 @@ struct Settings {
     path: PathBuf,
     overrides: toml::Table,
     config: Config,
+    /// The shake thresholds the input threads read.
+    shake: Arc<Mutex<ShakeParams>>,
 }
 
 impl Settings {
@@ -53,7 +57,10 @@ impl Settings {
 
     fn reload(&mut self) {
         match Config::load(&self.path, &self.overrides) {
-            Ok(config) => self.config = config,
+            Ok(config) => {
+                *self.shake.lock().unwrap_or_else(PoisonError::into_inner) = config.shake;
+                self.config = config;
+            }
             Err(e) => eprintln!("wayrcursor: keeping previous config: {e:#}"),
         }
     }
@@ -61,10 +68,12 @@ impl Settings {
 
 pub fn run(path: PathBuf, overrides: toml::Table) -> anyhow::Result<()> {
     let config = Config::load(&path, &overrides)?;
+    let shake = Arc::new(Mutex::new(config.shake));
     let settings = Rc::new(RefCell::new(Settings {
         path,
         overrides,
         config,
+        shake: shake.clone(),
     }));
     let mut session = Session::connect()?;
     let handle = session.event_loop.handle();
@@ -98,15 +107,16 @@ pub fn run(path: PathBuf, overrides: toml::Table) -> anyhow::Result<()> {
 
     watch_config(&session, settings.clone())?;
 
-    let detector = RefCell::new(ShakeDetector::new(settings.borrow().config.shake));
+    let (shakes, shake_events) = channel::channel::<()>();
+    let shakes = Mutex::new(shakes);
     let shake_settings = settings.clone();
-    input::watch(&handle, move |motion, overlay| {
-        let settings = shake_settings.borrow();
-        let mut detector = detector.borrow_mut();
-        detector.set_params(settings.config.shake);
-        if detector.feed(motion) {
-            overlay.trigger(&qh, &settings.config);
-        }
+    handle
+        .insert_source(shake_events, move |_, _, overlay| {
+            overlay.trigger(&qh, &shake_settings.borrow().config)
+        })
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    input::watch_shakes(shake, move || {
+        let _ = shakes.lock().map(|s| s.send(()));
     })
     .context("watching input devices")?;
 

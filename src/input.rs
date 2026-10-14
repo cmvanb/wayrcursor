@@ -1,8 +1,7 @@
-use std::cell::RefCell;
 use std::collections::HashSet;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
 
 use evdev::{
@@ -10,11 +9,9 @@ use evdev::{
     SynchronizationCode,
 };
 use inotify::{Inotify, WatchMask};
-use smithay_client_toolkit::reexports::calloop::{
-    Interest, LoopHandle, Mode, PostAction, generic::Generic,
-};
 
-use crate::shake::Motion;
+use crate::config::ShakeParams;
+use crate::shake::{Motion, ShakeDetector};
 
 /// Mice report counts, not distance; 1000 CPI is a common sensor default.
 const MM_PER_COUNT: f32 = 25.4 / 1000.0;
@@ -90,63 +87,55 @@ impl Translator {
     }
 }
 
-/// Watches every pointing device, including hotplugged ones, and reports their motion.
-pub fn watch<D: 'static>(
-    handle: &LoopHandle<'static, D>,
-    on_motion: impl FnMut(Motion, &mut D) + 'static,
+/// Watches every pointing device, including hotplugged ones, each on its own reader thread.
+/// Motion never wakes the caller; `on_shake` runs on a reader thread when a device is shaken.
+pub fn watch_shakes(
+    params: Arc<Mutex<ShakeParams>>,
+    on_shake: impl Fn() + Send + Sync + 'static,
 ) -> anyhow::Result<()> {
-    let watcher = Rc::new(Watcher {
-        handle: handle.clone(),
-        on_motion: RefCell::new(Box::new(on_motion)),
-        open: RefCell::default(),
+    let watcher = Arc::new(Watcher {
+        params,
+        on_shake: Box::new(on_shake),
+        open: Mutex::default(),
     });
-    let inotify = Inotify::init()?;
+    let mut inotify = Inotify::init()?;
     inotify
         .watches()
         .add(INPUT_DIR, WatchMask::CREATE | WatchMask::ATTRIB)?;
-    let hotplug = watcher.clone();
-    handle
-        .insert_source(
-            Generic::new(inotify, Interest::READ, Mode::Level),
-            move |_, inotify, _| {
-                let mut buffer = [0; 4096];
-                let names: Vec<_> = match unsafe { inotify.get_mut() }.read_events(&mut buffer) {
-                    Ok(events) => events
-                        .filter_map(|e| e.name.map(|n| n.to_owned()))
-                        .collect(),
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => Vec::new(),
-                    Err(e) => return Err(e),
-                };
-                for name in names {
-                    hotplug.open(Path::new(INPUT_DIR).join(name));
-                }
-                Ok(PostAction::Continue)
-            },
-        )
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
     for entry in std::fs::read_dir(INPUT_DIR)? {
         watcher.open(entry?.path());
     }
+    thread::Builder::new()
+        .name("wayrcursor-hotplug".into())
+        .spawn(move || {
+            let mut buffer = [0; 4096];
+            while let Ok(events) = inotify.read_events_blocking(&mut buffer) {
+                let names: Vec<_> = events
+                    .filter_map(|e| e.name.map(|n| n.to_owned()))
+                    .collect();
+                for name in names {
+                    watcher.open(Path::new(INPUT_DIR).join(name));
+                }
+            }
+        })?;
     Ok(())
 }
 
 const INPUT_DIR: &str = "/dev/input";
 
-type MotionHandler<D> = Box<dyn FnMut(Motion, &mut D)>;
-
-struct Watcher<D: 'static> {
-    handle: LoopHandle<'static, D>,
-    on_motion: RefCell<MotionHandler<D>>,
-    open: RefCell<HashSet<PathBuf>>,
+struct Watcher {
+    params: Arc<Mutex<ShakeParams>>,
+    on_shake: Box<dyn Fn() + Send + Sync>,
+    open: Mutex<HashSet<PathBuf>>,
 }
 
-impl<D: 'static> Watcher<D> {
-    fn open(self: &Rc<Self>, path: PathBuf) {
+impl Watcher {
+    fn open(self: &Arc<Self>, path: PathBuf) {
         let is_event_node = path
             .file_name()
             .and_then(|n| n.to_str())
             .is_some_and(|n| n.starts_with("event"));
-        if !is_event_node || self.open.borrow().contains(&path) {
+        if !is_event_node || lock(&self.open).contains(&path) {
             return;
         }
         let Ok(device) = Device::open(&path) else {
@@ -155,40 +144,41 @@ impl<D: 'static> Watcher<D> {
         let Some(kind) = classify(&device) else {
             return;
         };
-        if device.set_nonblocking(true).is_err() {
-            return;
-        }
-        let mut translator = Translator::new(kind);
+        lock(&self.open).insert(path.clone());
         let watcher = self.clone();
-        let source_path = path.clone();
-        let inserted = self.handle.insert_source(
-            Generic::new(device, Interest::READ, Mode::Level),
-            move |_, device, state| {
-                let now = Instant::now();
-                let events: Vec<InputEvent> = match unsafe { device.get_mut() }.fetch_events() {
-                    Ok(events) => events.collect(),
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        return Ok(PostAction::Continue);
-                    }
-                    Err(_) => {
-                        watcher.open.borrow_mut().remove(&source_path);
-                        return Ok(PostAction::Remove);
-                    }
-                };
-                let mut on_motion = watcher.on_motion.borrow_mut();
-                for motion in events
-                    .into_iter()
-                    .filter_map(|e| translator.translate(e, now))
-                {
-                    on_motion(motion, state);
-                }
-                Ok(PostAction::Continue)
-            },
-        );
-        if inserted.is_ok() {
-            self.open.borrow_mut().insert(path);
+        let thread_path = path.clone();
+        let node = path
+            .file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+        let spawned = thread::Builder::new()
+            .name(format!("in-{node}"))
+            .spawn(move || watcher.read(device, kind, &thread_path));
+        if spawned.is_err() {
+            lock(&self.open).remove(&path);
         }
     }
+
+    fn read(&self, mut device: Device, kind: DeviceKind, path: &Path) {
+        let mut translator = Translator::new(kind);
+        let mut detector = ShakeDetector::new(*lock(&self.params));
+        while let Ok(events) = device.fetch_events() {
+            let now = Instant::now();
+            detector.set_params(*lock(&self.params));
+            for motion in events.filter_map(|e| translator.translate(e, now)) {
+                if detector.feed(motion) {
+                    (self.on_shake)();
+                }
+            }
+        }
+        lock(&self.open).remove(path);
+    }
+}
+
+/// No lock holder can panic mid-update, so a poisoned lock still holds valid data.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn classify(device: &Device) -> Option<DeviceKind> {
