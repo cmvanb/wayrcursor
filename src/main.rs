@@ -3,6 +3,7 @@ mod config;
 mod gpu;
 mod overlay;
 mod ring;
+mod shake;
 
 use std::time::Instant;
 
