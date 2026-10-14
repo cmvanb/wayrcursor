@@ -1,6 +1,9 @@
 # wayrcursor
 
+> "Wayr is my cursor?"
+
 Shows where the cursor is on Wayland.
+
 A ring starts beyond the edges of the cursor's output,
 closes in on the cursor, holds for a moment, and fades out.
 Run it on demand, or keep the daemon running and shake the pointer.
