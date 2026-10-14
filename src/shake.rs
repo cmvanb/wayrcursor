@@ -198,4 +198,23 @@ mod tests {
         strokes(&mut d, &mut t, 0, 25.0, Duration::from_millis(80), 6);
         assert!(strokes(&mut d, &mut t, 0, 25.0, Duration::from_millis(80), 4) >= 3);
     }
+
+    #[test]
+    fn default_params_ignore_slow_drift() {
+        let mut d = ShakeDetector::new(crate::config::Config::default().shake);
+        let mut t = Instant::now();
+        let mut fired = 0;
+        for stroke in 0..8 {
+            let sign = if stroke % 2 == 0 { 1.0 } else { -1.0 };
+            for _ in 0..10 {
+                t += Duration::from_millis(60);
+                fired += d.feed(Motion {
+                    dx: sign * 2.54,
+                    dy: 0.0,
+                    at: t,
+                }) as usize;
+            }
+        }
+        assert_eq!(fired, 0);
+    }
 }
